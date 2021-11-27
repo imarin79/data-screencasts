@@ -1,6 +1,8 @@
 ---
 title: "Untitled"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -11,24 +13,25 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 
 words <- tibble(word = read_lines("https://norvig.com/ngrams/enable1.txt")) %>%
-  mutate(word_length = str_length(word)) %>%
-  filter(word_length >= 4,
-         !str_detect(word, "s")) %>%
+  mutate(word_length = str_length(word)) %>% #here we add the column word_length, where we count the number of letters for each word
+  filter(word_length >= 4, #here we filter the words that are longer than 4
+         !str_detect(word, "s")) %>% # and remove the ones that contain the letter s
   mutate(letters = str_split(word, ""),
-         letters = map(letters, unique),
-         unique_letters = lengths(letters)) %>%
+         letters = map(letters, unique), #here we count the number of unique letters
+         unique_letters = lengths(letters)) %>% #here we actually put the number of unique letters
   mutate(points = ifelse(word_length == 4, 1, word_length) +
-           15 * (unique_letters == 7)) %>%
+           15 * (unique_letters == 7)) %>% #do not quite understand this function
   filter(unique_letters <= 7) %>%
   arrange(desc(points))
 
 center_letter <- "g"
 other_letters <- c("a", "p", "x", "m", "e", "l")
 
+#Here we create this function:
 get_words <- function(center_letter, other_letters) {
   words %>%
-    filter(str_detect(word, center_letter)) %>%
-    mutate(invalid_letters = map(letters, setdiff, c(center_letter, other_letters))) %>%
+    filter(str_detect(word, center_letter)) %>% #here we filter the column word by center_letter with the letter g.
+    mutate(invalid_letters = map(letters, setdiff, c(center_letter, other_letters))) %>% #here we apply the function setdiff between the variables (columns) center_letter and other_letters. The function setdiff takes the elements of the first column that do not appear in the second column. 
     filter(lengths(invalid_letters) == 0) %>%
     arrange(desc(points))
 }
@@ -37,32 +40,35 @@ library(tidytext)
 
 letters_unnested <- words %>%
   select(word, points) %>%
-  unnest_tokens(letter, word, token = "characters", drop = FALSE) %>%
-  distinct(word, letter, .keep_all = TRUE)
+  unnest_tokens(letter, word, token = "characters", drop = FALSE) %>% #here we spell out each word and name each row with the word that is being spelt.
+  distinct(word, letter, .keep_all = TRUE) #here select the unique letters.
 
-letters_summarized <- letters_unnested %>%
-  group_by(letter) %>%
-  summarize(n_words = n(),
-            n_points = sum(points)) %>%
-  arrange(desc(n_points))
+letters_summarized <- letters_unnested %>% #here we take this dataframe
+  group_by(letter) %>%  #group by letter
+  summarize(n_words = n(),  #and then summarize by counting the number of letters
+            n_points = sum(points)) %>% # and the number of points
+  arrange(desc(n_points)) #here we order the table by the number of points
 ```
 
 ```{r}
+
+#Here we create a matrix in which each word is matched across the alphabet, so it is able to count the specific letters each word contains:
 word_matrix <- letters_unnested %>%
   reshape2::acast(word ~ letter, fun.aggregate = length)
 
 # Points per word (lines up with rows of word matrix)
 points_per_word <- words$points
 names(points_per_word) <- words$word
-points_per_word <- points_per_word[rownames(word_matrix)]
+points_per_word <- points_per_word[rownames(word_matrix)] #here we extract the points per word based on the rownames of word_matrix
 
+# Here we create this function get_score, where:
 get_score <- function(honeycomb_letters) {
-  center_letter <- honeycomb_letters[1]
+  center_letter <- honeycomb_letters[1] #we select the first element of this vector.
 
-  permitted_letters <- colnames(word_matrix) %in% honeycomb_letters
+  permitted_letters <- colnames(word_matrix) %in% honeycomb_letters #then we select the colnames of the word_matrix that match honeycomb_letters
   
-  num_forbidden <- word_matrix %*% (1L - permitted_letters)
-  word_permitted <- num_forbidden == 0L & word_matrix[, center_letter] == 1L
+  num_forbidden <- word_matrix %*% (1L - permitted_letters) #here we multiply matrices with the symbol %*%. I am not quite sure what 1L means. 
+  word_permitted <- num_forbidden == 0L & word_matrix[, center_letter] == 1L 
   
   sum(points_per_word[word_permitted])
 }
@@ -74,18 +80,19 @@ get_words("e", c("i", "a", "r", "n", "t", "l"))
 
 ```{r}
 center_letter <- "e"
+?combn()
 
 find_best_combination <- function(center_letter, possible_letters) {
-  good_letter_combinations <- combn(possible_letters, 6)
+  good_letter_combinations <- combn(possible_letters, 6) #here we combine all letter, 6 at a time.
   
   # Every column is one of the possible honeycombs
   forbidden_matrix <- 1L - apply(good_letter_combinations,
-                                 2,
+                                 2, #we apply to the columns of letter combinations dataset the following function, which basically takes the colnames of word_matrix that matches the center_letter
                                  function(.) colnames(word_matrix) %in% c(center_letter, .))
   
-  filtered_word_matrix <- word_matrix[word_matrix[, center_letter] == 1, ]
+  filtered_word_matrix <- word_matrix[word_matrix[, center_letter] == 1, ] #here we select the rows of word_matrix of the center_letter that are equal to 1. 
   word_allowed_matrix <- filtered_word_matrix %*% forbidden_matrix == 0
-  scores <- t(word_allowed_matrix) %*% points_per_word[rownames(word_allowed_matrix)]
+  scores <- t(word_allowed_matrix) %*% points_per_word[rownames(word_allowed_matrix)] #here we transpose the word_allowed_matrix created earlier and multiply to the points_per_word.
   
   list(center_letter = center_letter,
        other_letters = good_letter_combinations[, which.max(scores)],
@@ -127,9 +134,52 @@ words %>%
 words
 ```
 
-
-
+#Here I am playing around (Isaac):
 ```{r}
+good_letter_combinations <- combn(letters_summarized$letter[2:10],6) #here we combine letter 2 to 10, by 6, all possible combinations. 
+
+get_score <- function(honeycomb_letters) {
+  center_letter <- honeycomb_letters[1] #we select the first element of this vector.
+
+  permitted_letters <- colnames(word_matrix) %in% honeycomb_letters #then we select the colnames of the word_matrix that match honeycomb_letters
+  
+  num_forbidden <- word_matrix %*% (1L - permitted_letters) #here we multiply matrices with the symbol %*%. I am not quite sure what 1L means. 
+  word_permitted <- num_forbidden == 0L & word_matrix[, center_letter] == 1L 
+  
+  sum(points_per_word[word_permitted])
+}
+
+map_dbl(seq_len(ncol(good_letter_combinations)),
+    ~get_score("e", good_letter_combinations[, .]))
+
+good_letter_combinations[,which.max(scores)]
+
+class(word_matrix)
+
+
+apply(good_letter_combinations, 2, function(.) colnames(word_matrix) %in% c(center_letter, .))
+
+apply(good_letter_combinations, 2, get_score)#2 is for columns, 1 is for rows
+
+#Let's make a binary matrix of good_letter_combinations:
+
+binary_matrix <- apply(good_letter_combinations,
+                       2,
+                       function(.) colnames(word_matrix) %in% c("e", .))
+
+# This is a way to convert FALSE as 1 and TRUE as 0
+forbidden_matrix <- 1L - apply(good_letter_combinations,
+                       2,
+                       function(.) colnames(word_matrix) %in% c("e", .)) 
+
+#Here we multiply matrices, and when the result is = to 0, then we call that word_forbidden_matrix
+word_allowed_matrix <- as.data.frame(word_matrix %*% forbidden_matrix == 0)
+word_allowed_matrix[word_allowed_matrix[(word_matrix %*% forbidden_matrix) == 0],]
+t(word_allowed_matrix * word_matrix[,"e"])
+filtered_word_matrix <- word_matrix[word_matrix[,"e"] == 1, ]
+dim(filtered_word_matrix)
+
+
 
 ```
 

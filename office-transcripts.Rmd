@@ -1,6 +1,8 @@
 ---
 title: "The Office"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -9,13 +11,13 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
-library(schrute)
+library(schrute) #it includes the database theoffice.
 theme_set(theme_light())
 
 office_transcripts <- as_tibble(theoffice) %>%
   mutate(season = as.integer(season),
          episode = as.integer(episode)) %>%
-  mutate(character = str_remove_all(character, '"')) %>%
+  mutate(character = str_remove_all(character, '"')) %>% #here we remove the "" in all elements of column character. 
   mutate(name = str_to_lower(str_remove_all(episode_name, "\\.| \\(Part.*")))
 
 office_ratings <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-17/office_ratings.csv') %>%
@@ -33,12 +35,12 @@ office_ratings %>%
   scale_x_continuous(breaks = 1:9)
 
 office_ratings %>%
-  mutate(title = fct_inorder(title),
-         episode_number = row_number()) %>%
+  mutate(title = fct_inorder(title), # here we order factor by the order in which they appear.
+         episode_number = row_number()) %>% #create a new column with the row number.
   ggplot(aes(episode_number, imdb_rating)) +
   geom_line() +
   geom_smooth() +
-  geom_point(aes(color = factor(season), size = total_votes)) +
+  geom_point(aes(color = factor(season), size = total_votes)) + #here we label the points on the line based on the factor season. 
   geom_text(aes(label = title), check_overlap = TRUE, hjust = 1) +
   expand_limits(x = -10) +
   theme(panel.grid.major.x = element_blank(),
@@ -50,6 +52,8 @@ office_ratings %>%
 ```
 
 ```{r}
+
+#This is to find out the most popular episode:
 office_ratings %>%
   arrange(desc(imdb_rating)) %>%
   mutate(title = paste0(season, ".", episode, " ", title),
@@ -58,13 +62,14 @@ office_ratings %>%
   ggplot(aes(title, imdb_rating, color = factor(season), size = total_votes)) +
   geom_point() +
   coord_flip() +
-  labs(color = "Season",
+  labs(color = "Season", #this is the legend.
        title = "Most popular episodes of The Office")
+
 ```
 
 ### Transcripts
-
 ```{r}
+
 library(tidytext)
 
 blacklist <- c("yeah", "hey", "uh", "gonna")
@@ -75,9 +80,9 @@ transcript_words <- office_transcripts %>%
   filter(n() >= 100,
          n_distinct(episode_name) > 2) %>%
   ungroup() %>%
-  select(-text_w_direction) %>%
-  unnest_tokens(word, text) %>%
-  anti_join(stop_words, by = "word") %>%
+  select(-text_w_direction) %>% 
+  unnest_tokens(word, text) %>% #so, here we separate each word of each element of the column text and make it a row
+  anti_join(stop_words, by = "word") %>% #here we join both datasets by the column word.
   filter(!word %in% blacklist,
          !character %in% blacklist_characters)
 
@@ -85,21 +90,30 @@ character_tf_idf <- transcript_words %>%
   add_count(word) %>%
   filter(n >= 20) %>%
   count(word, character) %>%
-  bind_tf_idf(word, character, n) %>%
+  bind_tf_idf(word, character, n) %>% #here we calculate the term frequency (tf) and the inverse document frequency (idf).
   arrange(desc(tf_idf))
+
+#We want to know the number fo times the character Dwight appeared.
+office_transcripts %>% 
+  count(character, sort =TRUE) %>% 
+  filter(character == "Dwight")
+
+
 ```
 
 ```{r}
 character_tf_idf %>%
   filter(character %in% c("Dwight", "Jim", "David Wallace", "Darryl", "Jan", "Holly")) %>%
   group_by(character) %>%
-  top_n(10, tf_idf) %>%
+  # add_count() %>% 
+  # distinct(character,n()) %>% #here we quantify the number of appearances of each character. 
+  top_n(10, tf_idf) %>% #top ten of characters based on tf_idf
   ungroup() %>%
-  mutate(word = reorder_within(word, tf_idf, character)) %>%
+  mutate(word = reorder_within(word, tf_idf, character)) %>% #here we reorder the column word by tf_idf within each character.
   ggplot(aes(word, tf_idf)) +
   geom_col() +
   coord_flip() +
-  scale_x_reordered() +
+  scale_x_reordered() + #reorderign the x axis based on frequency.
   facet_wrap(~ character, scales = "free_y") +
   labs(x = "",
        y = "TF-IDF of character-word pairs")
