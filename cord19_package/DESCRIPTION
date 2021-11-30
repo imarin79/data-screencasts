@@ -1,0 +1,25 @@
+Package: cord19
+Type: Package
+Title: What the Package Does (Title Case)
+Version: 0.1.0
+Author: David Robinson
+Maintainer: The package maintainer <admiral.david@gmail.com>
+Description: Shares the data from the COVID-19 Open Research Dataset Challenge hosted by Kaggle, in a format that is easily analyzed within R. 
+See this website for further info: See https://pages.semanticscholar.org/coronavirus-research
+License: file LICENSE
+Encoding: UTF-8
+LazyData: true
+Suggests:
+    dplyr,
+    purr,
+    tidyr,
+    readr,
+    stringr,
+    jsonlite,
+    jasonlite,
+    janitor,
+    usethis
+Depends: 
+    R (>= 2.10)
+RoxygenNote: 7.1.1
+
