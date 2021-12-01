@@ -1,3 +1,13 @@
+## Screencast: Cleaning and exploring the COVID-19 Open Research Dataset (CORD-19)
+## This is good to analyze papers.
+
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+## Screencast: Cleaning and exploring the COVID-19 Open Research Dataset (CORD-19)
+
 ---
 title: "COVID-19 Cleaning/Exploration"
 output: html_document
@@ -16,65 +26,120 @@ library(jsonlite)
 library(janitor)
 
 # This is where I'm storing mine
-infolder <- "~/Downloads/2020-03-13"
+infolder <- "~/Downloads/kgarrett-covid-19-open-research-dataset"
 
-metadata <- read_csv(paste0(infolder, "/all_sources_metadata_2020-03-13.csv")) %>%
-  clean_names() %>%
-  rename(paper_id = sha,
+setwd("~/Downloads/kgarrett-covid-19-open-research-dataset")
+
+metadata <- read_csv(paste0("all_sources_metadata_2020-03-13.csv")) %>%
+  clean_names() %>% #this is to make the column names lower case.
+  rename(paper_id = sha, #this is to rename column names to these ones. 
          source = source_x)
+
+dim(metadata)
+
+metadata %>% 
+  filter(has_full_text)
+
+```
+
+##Extracting info from all papers:
+```{r}
+
+#The vast majority of papers have an abstract:
+metadata %>% 
+  count(is.na(abstract))
+
 ```
 
 ```{r}
+
 # Read in all the JSON objects as well
-# dir() with recursive = TRUE allows us to get a full vector of filenames
+# dir() with recursive = TRUE allows us to get a full vector of filenames:
 json_objects <- dir(infolder,
                     pattern = "*.json",
                     full.names = TRUE,
                     recursive = TRUE) %>%
-  map(read_json)
+  map(read_json) #map() function is used to apply a function to a specific dataset. In this case, read_json() is used to read json files, which are usually manuscript files. 
+
+
 ```
 
 We then use the `hoist()` function from tidyr to turn the nested data into a rectangle.
-
 ```{r articles_hoisted}
+#This is used to rectangle, collapse deeply nested list into rectangular columns. In this case, the dataset is json  (from json_objects), and the variables are paper_id, section, text, citations, and bib_entries.
+
 articles_hoisted <- tibble(json = json_objects) %>%
-  hoist(json,
-        paper_id = "paper_id",
-        section = c("body_text", function(.) map_chr(., "section")),
+  hoist(json,   #hoist from the json object, 
+        paper_id = "paper_id", 
+        section = c("body_text", function(.) map_chr(., "section")), #the map function applies a function to each element of a vector and returns a vector of the same length as the original vector. In this case, the vector is a character, 
         text = c("body_text", function(.) map_chr(., "text")),
         citations = c("body_text", function(.) map(., "cite_spans")),
         bib_entries = "bib_entries") %>%
-  select(-json)
+  select(-json)#here we actually remove the dataset itself.
+
+#Here with the hoist() function we rectangle the dataset json_objects, which we name here as json, and create these variables:
+article_data <- tibble(json = json_objects) %>%
+  hoist(json,   #hoist from the json object, 
+        paper_id = "paper_id", 
+        title = c("metadata", "title"),
+        authors = c("metadata", "authors"),
+        abstract = c("abstract", function(.) str_c(map_chr(., "text"), collapse = "\n")),
+        body_text = c("body_text", function(.) str_c(map_chr(., "text"), collapse = "\n")),
+        bib_entries = "bib_entries") %>% 
+  select(-json) %>% 
+  filter(!is.na(abstract))
+
 ```
 
 ```{r}
-paragraphs <- articles_hoisted %>%
-  select(-bib_entries) %>%
-  unnest(cols = c(text, section, citations)) %>%
-  group_by(paper_id) %>%
-  mutate(paragraph = row_number()) %>%
-  ungroup() %>%
-  select(paper_id, paragraph, everything())
 
-# Could use unnest_wider, but hoist seems to be faster
+#Here we are going to do some text mining:
+title_words <- articles_data %>% 
+  unnest_tokens(word, title) %>%  #with this function we separate each word from each element of the column title into a single row, so in the next section we count the number of times a single word appears in that column
+  count(word, sort = TRUE) %>% 
+  anti_join(stop_words, by = "word")  #the anti_join() function is used to find unmatched words and quantify them, in this case we count those words that are not stop words, which are words that provide little information, which we want to remove from our analysis. This dataframe comes from the tm package.
+  
+#Here we want to plot the number of words based on their frequency:
+title_words %>% 
+    head(20) %>% 
+    mutate(word = fct_reorder(word, n)) %>%  # we use the function fct_reorder() because word is a factor vector.
+    ggplot(aes(word, n)) +
+    geom_col()+
+    coord_flip() +
+    labs(title = "Words that appear in many titles")
+  
+
+paragraphs <- articles_hoisted %>%
+  select(-bib_entries) %>% #here we remove this column. 
+  unnest(cols = c(text, section, citations)) %>% # with the function unnest() we actually display the entire text in the dataset
+  group_by(paper_id) %>%
+  mutate(paragraph = row_number()) %>% #here we add a new column where we count the row_number() based on the paper_id
+  ungroup() %>%
+  select(paper_id, paragraph, everything()) #this is actually a cool way to order the columns. When we use the function select(), the columns will appear in the same order displayed in the arguments of that function. In this case, the first two columns will be paper_id and paragraph, and then everything() else as originally displayed in the dataset. 
+
+# Could use unnest_wider, but hoist seems to be faster:
 paragraph_citations <- paragraphs %>%
   select(paper_id, paragraph, citations) %>%
   unnest(citations) %>%
   hoist(citations, start = "start", end = "end", text = "text", ref_id = "ref_id")
+
 ```
 
 ```{r}
+
 articles_full <- articles_hoisted %>%
-  select(paper_id)
-  inner_join(metadata, by = c(paper_id = "sha")) %>%
-  mutate(abstract = coalesce(abstract, abstract_json)) %>%
+  select(paper_id) %>% 
+  inner_join(metadata, by = c(paper_id = "sha")) %>% #since the variable name in metadata dataset is different from that of articles_hoisted, we   specify here that paper_id and "sha" are the same. 
+  mutate(abstract = coalesce(abstract, abstract_json)) %>% #it seems that abstract_json has not been found. 
   select(-json, -has_full_text, -abstract_json) %>%
   filter(!is.na(title), !is.na(abstract))
+  
 ```
 
 Pulling out the details from the article references
 
 ```{r}
+
 article_references <- articles_hoisted %>%
   select(paper_id, bib_entries) %>%
   unnest(bib_entries) %>%
@@ -88,14 +153,12 @@ article_references <- articles_hoisted %>%
         year = "year",
         doi = list("other_ids", "DOI", 1)) %>%
   select(-bib_entries)
+
 ```
 
-
-
 ### Exploratory Data Analysis
-
 ```{r}
-title_words <- article_data %>%
+title_words <- article_data %>% #article data is not found
   unnest_tokens(word, title) %>%
   count(word, sort = TRUE) %>%
   anti_join(stop_words, by = "word")
@@ -107,6 +170,7 @@ title_words %>%
   geom_col() +
   coord_flip() +
   labs(title = "Words that appear in many titles")
+
 ```
 
 ```{r}
@@ -125,12 +189,42 @@ abstract_words %>%
 ```
 
 ```{r}
+#Spacyr is a python package containing spacy models for processing biomedical, scientific or clinical text.
+# Here are the specific instructions to install spacyR: https://spacyr.quanteda.io
+
+#First, we install miniconda to create its own environment:
+spacy_install(
+  conda = "auto",
+  version = "latest",
+  lang_models = "en_core_web_sm",
+  python_version = "3.6",
+  envname = "spacy_condaenv",
+  pip = FALSE,
+  python_path = NULL,
+  prompt = TRUE
+)
+
+#Second, we install the spacyR package from CRAN:
+install.packages("spacyr")
+
+#Third, we install spacyR in the conda environment we created in the First step.
 library(spacyr)
-spacy_initialize("en_core_sci_sm", python_executable = "/opt/miniconda3/bin/python")
+spacy_install()
+
+#Fourth, we will intialyze spacyR in R with
+spacy_initialize()
+
+
+#Then, start doing the analysis that you want. For some reason, it is not separating each word of the text:
+spacy_extract_entity("Myeloid derived suppressor cells (MDSC) are immature 
+myeloid cells with immunosuppressive activity. 
+They accumulate in tumor-bearing mice and humans 
+with different types of cancer, including hepatocellular 
+carcinoma (HCC).")
+
 ```
 
-Tidytext can take a custom tokenization function
-
+Tidytext can take a custom tokenization function:
 ```{r}
 tokenize_scispacy_entities <- function(text) {
   spacy_extract_entity(text) %>%
@@ -146,13 +240,16 @@ myeloid cells with immunosuppressive activity.", "They accumulate in tumor-beari
 with different types of cancer, including hepatocellular 
 carcinoma (HCC)."))
 
+# This code does not work, specifically the unnest_tokens() function:
 abstract_entities <- article_data %>%
   select(paper_id, abstract) %>%
-  sample_n(2000) %>%
+  sample_n(1606) %>%
   unnest_tokens(entity, abstract, token = tokenize_scispacy_entities)
+
 ```
 
 ```{r}
+
 abstract_entities %>%
   count(entity, sort = TRUE) %>%
   head(30) %>%
@@ -160,10 +257,12 @@ abstract_entities %>%
   ggplot(aes(entity, n)) +
   geom_col() +
   coord_flip()
+
 ```
 
 ```{r}
-library(widyr)
+
+library(widyr) #it is used to find correlations between entities:
 
 entity_correlations <- abstract_entities %>%
   add_count(entity) %>%
@@ -171,7 +270,7 @@ entity_correlations <- abstract_entities %>%
   pairwise_cor(entity, paper_id, sort = TRUE) %>%
   head(400)
 
-library(ggraph)
+library(ggraph) #this is useful to make connectomes based on correlations. 
 
 set.seed(2020)
 
@@ -185,46 +284,83 @@ entity_correlations %>%
   theme(legend.position = "none") +
   labs(title = "Entities that often appear together in abstracts",
        subtitle = "Based on the scispacy Named Entity Recognition model")
+
 ```
 
 ### References
-
 ```{r}
+# This is to count the number of journals the papers are coming from:
+metadata %>% 
+  count(journal, sort=TRUE)
+
+article_data %>% 
+  head(100) %>% 
+  select(paper_id, bib_entries) %>% 
+  unnest(bib_entries) %>%  #this is to unfold the bib_entries column into list items to them group those items into columns based on their categories, such as year, venue, etc...
+  unnest_wider(bib_entries) #here we separate the information of bib_entries into single columns, like year, venue, volume, issn, pages, etc...
+
+#Here we count the number of the most referenced articles. The problem is that there are articles here that are not true articles. In the next code chunk, we are going to remove them:
+article_references %>% 
+  count(title, sort=TRUE) %>% 
+  head(20) %>% 
+  mutate(title=fct_reorder(title, n)) %>% 
+  ggplot(aes(title, n))+
+  geom_col() +
+  coord_flip() +
+  labs(title="Most referenced papers")
+
 num_articles <- n_distinct(article_references$paper_id)
 
+#Here we remove texts that are not real articles (second line of the code):
 article_references %>%
-  filter(!str_detect(title, "Submit your next|This article|Springer Nature remains|Publisher's Note")) %>%
-  count(title = str_trunc(title, 100), sort = TRUE) %>%
-  mutate(percent = n / num_articles) %>%
-  head(20) %>%
-  mutate(title = fct_reorder(title, percent)) %>%
+  filter(!str_detect(title, "Submit your next|This article|Springer Nature remains|Publisher's Note|The copyright|No reuse|All rights")) %>%
+  count(title = str_trunc(title, 100), sort = TRUE) %>% #this is to truncate a character string to 100 words.
+  mutate(percent = n / num_articles) %>% #here we add another column for the percents. The object num_articles was created right above.
+  head(20) %>% #show the top 20.
+  mutate(title = fct_reorder(title, percent)) %>% #here we reorder title based on percentage, which we will use to plot right after. 
   ggplot(aes(title, percent)) +
   geom_col() +
   scale_y_continuous(labels = scales::percent_format()) +
   coord_flip() +
   labs(title = "What are the most referenced articles in the COVID-19 dataset?",
-       subtitle = glue::glue("Based on the { scales::comma(num_articles) } open for commercial use that have references"))
+       subtitle = glue::glue("Based on the { scales::comma(num_articles) } open for commercial use that have references")) # the num_articles object was created right above this code chunk.
+
 ```
 
 ```{r}
 referenced_articles <- article_references %>%
   filter(!is.na(year)) %>%
-  distinct(title, year)
+  distinct(title, year) #here we just include those in which the combination of title and year are unique. 
+
+
+referenced_article_titles <- referenced_articles %>% 
+  sample_n(500) %>%  #here we take just 500 rows
+  unnest_tokens(entity, title, token = tokenize_scispacy_entities)
+
+
+referenced_articles <- article_data %>% 
+  select(paper_id, bib_entries) %>% 
+  unnest(bib_entries) %>% 
+  hoist(bib_entries, title = "title", venue = "venue", year = "year")
 
 year_totals <- referenced_articles %>%
-  count(year = 2 * (year %/% 2), name = "total")
+  count(year = 2 * (year %/% 2), name = "total") #here we select every two years, and we name the column as total. 
 
 referenced_article_words <- referenced_articles %>%
   unnest_tokens(word, title)
 
+#This is a way to analyze every single word used per year between 1900 and 2020. 
 by_word_year <- referenced_article_words %>%
-  count(year = 2 * (year %/% 2), word) %>%
+  count(year = 2 * (year %/% 2), word) %>% #this symbol %/% represents division
   filter(year >= 1900, year <= 2020) %>%
   inner_join(year_totals, by = "year") %>%
   mutate(percent = n / total)
 
+by_word_year %>% 
+  filter(word == c("bat","bats"))
+
 by_word_year %>%
-  filter(word %in% c("bat", "bats")) %>%
+  filter(word %in% c("bat", "bats")) %>%  #to select more than 1 element of a column, use the %in% symbol. 
   ggplot(aes(year, percent)) +
   geom_col() +
   scale_y_continuous(labels = scales::percent) +

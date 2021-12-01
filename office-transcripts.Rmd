@@ -18,10 +18,10 @@ office_transcripts <- as_tibble(theoffice) %>%
   mutate(season = as.integer(season),
          episode = as.integer(episode)) %>%
   mutate(character = str_remove_all(character, '"')) %>% #here we remove the "" in all elements of column character. 
-  mutate(name = str_to_lower(str_remove_all(episode_name, "\\.| \\(Part.*")))
+  mutate(name = str_to_lower(str_remove_all(episode_name, "\\.| \\(Part.*"))) #here we remove . and (Part.*
 
 office_ratings <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-17/office_ratings.csv') %>%
-  mutate(name = str_to_lower(str_remove_all(title, "\\.| \\(Part.*|\\: Part.*")))
+  mutate(name = str_to_lower(str_remove_all(title, "\\.| \\(Part.*|\\: Part.*"))) # here we remove the periods, Part.*, and : Part.*
 ```
 
 ```{r}
@@ -135,12 +135,14 @@ What affects popularity of an episode:
 * Lines per character
 
 ```{r}
+#We are using here the original office_ratings dataset (uploaded at the top of the script)
+  
 ratings_summarized <- office_ratings %>%
   group_by(name) %>%
-  summarize(imdb_rating = mean(imdb_rating))
+  summarize(imdb_rating = mean(imdb_rating)) #here we calculate the mean of imdb_rating by unique names
 
 character_lines_ratings <- office_transcripts %>%
-  filter(!character %in% blacklist_characters) %>%
+  filter(!character %in% blacklist_characters) %>% #filter the elements that are in blacklist but not in character column.
   count(character, name) %>%
   group_by(character) %>%
   filter(sum(n) >= 50,
@@ -152,49 +154,54 @@ character_lines_ratings %>%
             nb_episodes = n()) %>%
   arrange(desc(avg_rating)) %>%
   View()
+
 ```
 
 ```{r}
+
 director_writer_features <- office_transcripts %>%
-  distinct(name, director, writer) %>%
-  gather(type, value, director, writer) %>%
-  separate_rows(value, sep = ";") %>%
-  unite(feature, type, value, sep = ": ") %>%
+  distinct(name, director, writer) %>% # Since there are repeated elements in name, director, and writer, we pass the function distinct to show just rows in which each element of these three variables are shown just once.
+  gather(type, value, director, writer) %>% # Here we put the columns director and writer from horizontal to perpendicular as type and value. The rest of the columns will stay the same. 
+  separate_rows(value, sep = ";") %>% #here we separate those elements in value that have ;
+  unite(feature, type, value, sep = ": ") %>% #here we unite or fuse the columns type and value separated by : and name it as feature. 
   group_by(feature) %>%
-  filter(n() >= 3) %>%
+  filter(n() >= 3) %>% #we only include here those repeated 3 or more times. 
   mutate(value = 1) %>%
   ungroup()
 
 character_line_features <- character_lines_ratings %>%
   ungroup() %>%
-  transmute(name, feature = character, value = log2(n))
+  transmute(name, feature = character, value = log2(n)) #here we changes and only keep these columns. 
 
 season_features = office_ratings %>%
   distinct(name, season) %>%
-  transmute(name, feature = paste("season:", season), value = 1)
+  transmute(name, feature = paste("season:", season), value = 1) #to add these variables and drop existing ones. 
 
 features <- bind_rows(director_writer_features,
                       character_line_features,
-                      season_features) %>%
+                      season_features) %>% #here we stack these datasets on top of each other. 
   semi_join(office_ratings, by = "name") %>%
   semi_join(office_transcripts, by = "name")
+
 ```
 
 ```{r}
+#Here we create a sparce matrix:
 episode_feature_matrix <- features %>%
-  cast_sparse(name, feature, value)
+  cast_sparse(name, feature, value) #this is a way to spread the data included in these three variables. 
 
 ratings <- ratings_summarized$imdb_rating[match(rownames(episode_feature_matrix), ratings_summarized$name)]
 
 library(glmnet)
 library(broom)
 
-mod <- cv.glmnet(episode_feature_matrix, ratings)
+#here we perform cross validation of a generalized linear model. In this case we use the episode_feature_matrix to predict the ratings:
+mod <- cv.glmnet(episode_feature_matrix, ratings) #this is showing the log(lambda) to see how it changes relative to mean-squared error.
 
 plot(mod)
 
 tidy(mod$glmnet.fit) %>%
-  filter(lambda == mod$lambda.min,
+  filter(lambda == mod$lambda.min, #here we pick a lambda
          term != "(Intercept)") %>%
   mutate(term = fct_reorder(term, estimate)) %>%
   ggplot(aes(term, estimate, fill = estimate > 0)) +
@@ -202,4 +209,7 @@ tidy(mod$glmnet.fit) %>%
   coord_flip() +
   labs(y = "Estimated effect on the rating of an episode") +
   theme(legend.position = "none")
+
+dev.off()
+
 ```
