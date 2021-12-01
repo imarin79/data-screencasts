@@ -11,10 +11,28 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
+library(purrr)
+
+# We are going to use the accumulate() function to simulate the results of rolling a die n number of times. 
 
 start <- 1:6
 
+#Here, from the vector start, we are going to take a sample of the same size with replacement, meaning the same result can appear more than once. 
 next_rolls <- sample(start, replace = TRUE)
+
+#Here, we take a sample of 6 elements from the vector 1:10, with replacement and the first element can be 1,2,3,4,5,6. This is repeated 10 times. 
+accumulate(1:10, ~sample(., 6, replace = TRUE), .init = 1:6)
+
+accumulate(1:10, function(x,...){
+  result <- sample(x, replace = TRUE)
+  
+  if(length(unique(result)) == 1){
+    done(result)
+  }else{
+    result
+  }
+}, .init = 1:6)
+
 
 simulate_roll <- function(num_sides = 6) {
   rolls <- accumulate(1:1000, function(x, ...) {
@@ -30,20 +48,42 @@ simulate_roll <- function(num_sides = 6) {
   length(rolls) - 1
 }
 
-simulations4 <- replicate(1e6, simulate_roll(4))
+#Here is a different version of the above function:
+simulate_roll_2 <- function(num_sides = 6) {
+    accumulate(1:1000, function(x, ...) {
+    result <- sample(x, replace = TRUE)
+    
+    if (length(unique(result)) == 1) {
+      done(result)
+    } else {
+      result
+    }
+  }, .init = 1:num_sides)
+  
+}
 
+simulate_roll_2()
+
+simulations <- replicate(1e4, simulate_roll()) #replicate 100,000 simulate_roll four times. 
+
+#Here we plot the simulations:
+qplot(simulations, binwidth=1)
+
+#We calculate the mean:
 mean(simulations)
 
+#Here we calculate most and least common ones. The most common roll is 6.
 tibble(simulations) %>%
   count(simulations, sort = TRUE)
 ```
 
-On average, it takes 9.666 rolls to get the same number on all sides.
-
+On average, it takes 9.666 rolls (calculated from mean(simulations)) to get the same number on all sides:
 ```{r simulations_crossed}
+
+#The crossing() function creates a data.table from all unique combinations of inputs. In this case,, the first input is 1:20000, and the second is 2:10. 
 simulations_crossed <- crossing(trial = 1:20000,
                                 num_sides = 2:10) %>%
-  mutate(simulation = map_dbl(num_sides, simulate_roll))
+  mutate(simulation = map_dbl(num_sides, simulate_roll)) #in this case, the function map_dbl() applies the function simulate_roll to each element of num_sides
 ```
 
 ```{r}
@@ -52,7 +92,7 @@ summarized <- simulations_crossed %>%
   summarize(average_roll = mean(simulation),
             variance_roll = var(simulation),
             sd_roll = sd(simulation),
-            cov = sd_roll / average_roll)
+            cov = sd_roll / average_roll) #cov stands for coefficient of variation. 
 
 summarized %>%
   ggplot(aes(num_sides, average_roll)) +
@@ -66,4 +106,5 @@ simulations_crossed %>%
   ggplot(aes(simulation)) +
   geom_histogram(binwidth = 1) +
   facet_wrap(~ num_sides, scales = "free_y")
+
 ```
