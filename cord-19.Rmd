@@ -6,7 +6,6 @@ output: html_document
 editor_options: 
   chunk_output_type: console
 ---
-## Screencast: Cleaning and exploring the COVID-19 Open Research Dataset (CORD-19)
 
 ---
 title: "COVID-19 Cleaning/Exploration"
