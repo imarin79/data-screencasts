@@ -84,6 +84,7 @@ On average, it takes 9.666 rolls (calculated from mean(simulations)) to get the 
 simulations_crossed <- crossing(trial = 1:20000,
                                 num_sides = 2:10) %>%
   mutate(simulation = map_dbl(num_sides, simulate_roll)) #in this case, the function map_dbl() applies the function simulate_roll to each element of num_sides
+
 ```
 
 ```{r}
